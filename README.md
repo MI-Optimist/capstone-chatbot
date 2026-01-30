@@ -63,13 +63,13 @@ Recall that you have already created a question answering system that can provid
 
 Your chatbot will include this feature as an option to allow users to ask topic-specific questions based on a set of documents of your choice.
 
-![knowledge base](screenshots/knowledgebase.png)
+![knowledge base](screenshots/answer_from_knowledge_base.jpeg)
 
 #### 1. Create a Chroma database
 
-Use the [notebook](https://colab.research.google.com/drive/1fGCia6TEjerDlysPqUFsBb8x3LwiG0Ef?usp=sharing) provided in the Generative Question Answering lesson to create a Chroma database and download it to your computer. Make sure that you choose a text that is related to your industry or that it's a text that may bring useful information.
+Use the [notebook](https://colab.research.google.com/drive/1luGTr5ztQvNJO-YisldNK2kS1Qly4uan?usp=sharing) provided in the Generative Question Answering lesson to create a Chroma database and download it to your computer. Make sure that you choose a text that is related to your industry or that it's a text that may bring useful information.
 
->**Note:** Cohere has introduced a token limit for embeddings, so to prevent errors, it's recommended to use shorter texts, like a Wikipedia article. If you encounter any issues while creating your database using the notebook above, you are welcome to use [this](https://github.com/Thinkful-Ed/ai-in-web-dev-resources/raw/refs/heads/main/db_updated.zip) pre-built database for your project.
+>**Note:** Cohere has introduced a token limit for embeddings, so to prevent errors, it's recommended to use shorter texts, like a Wikipedia article. If you encounter any issues while creating your database using the notebook above, you are welcome to use [this](https://github.com/Thinkful-Ed/ai-in-web-dev-resources/raw/refs/heads/main/db.zip) pre-built database for your project.
 
 >**Note:** Please be aware that Github imposes a [file size limit of 25MB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github#file-size-limits). Thus, if you add numerous documents to your database, it may exceed this limit. In case you have a file larger than 25MB, you have two options: 
 >
@@ -82,41 +82,44 @@ Use the [notebook](https://colab.research.google.com/drive/1fGCia6TEjerDlysPqUFs
 
 To use the database in your app, you will need to add it in your project. Add the `db` folder to your project like shown in the screenshot below.
 
-![Files](screenshots/files_updated.png)
+![Files](screenshots/files.png)
 
 #### 3. Load the database in your flask app
 
 Import RetrievalQA, Chroma, and CohereEmbeddings into your project.
 
 ```python
-from flask import Flask, render_template, request, jsonify
 from langchain_cohere import ChatCohere, CohereEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
+from langchain_chroma import Chroma
+from langchain_classic.chains import RetrievalQA
 from langchain_core.runnables import RunnableSequence
-import os
-from dotenv import load_dotenv
-load_dotenv()
+from langchain_core.prompts import PromptTemplate
 ```
 
 Create a function to load the database. To avoid any errors, make sure that you added the database to your project and that you have set your `COHERE_API_KEY` in your `.env` file. 
 
 ```python
 def load_db():
-    try:
-        embeddings = CohereEmbeddings(cohere_api_key=os.environ["COHERE_API_KEY"])
+    try:        
+        embeddings = CohereEmbeddings(
+            cohere_api_key=os.environ["COHERE_API_KEY"], 
+            model="embed-english-v3.0"
+            )
+        
         vectordb = Chroma(persist_directory='db', embedding_function=embeddings)
         llm = ChatCohere(cohere_api_key=os.environ["COHERE_API_KEY"])
         qa = RetrievalQA.from_chain_type(
             llm=llm,
-            chain_type="refine",
+            chain_type="stuff",
             retriever=vectordb.as_retriever(),
             return_source_documents=True
         )
+
         return qa
+    
     except Exception as e:
-        print("Error:", e)
+        print("Error initializing QA system:", e)
+        return None
 
 qa = load_db()
 ```
@@ -129,9 +132,15 @@ The function should call the RetrievalQA object that you created in the previous
 def answer_from_knowledgebase(message):
     try:
         res = qa.invoke({"query": message})
+        source_docs = res.get('source_documents', [])
+        
+        if not source_docs:
+            return "No relevant knowledge found in the database."
+
         return res['result']
     except Exception as e:
-        return e
+        print("Error during QA invocation:", e)
+        return "Sorry, I couldn't retrieve an answer."
 ```
 
 Make sure to test that your function works before proceeding to the next step.
@@ -145,17 +154,26 @@ Make sure to test that your function works before proceeding to the next step.
 
 Your chatbot must also include a feature that allows a user to search your document knowledgebase. Recall that the source documents are already returned when using RetrievalQA and can be retrieved by calling `results["source_documents"]`.
 
-![Alt text](screenshots/search.png)
+![Alt text](screenshots/search_knowledgebase.jpeg)
 
 #### 1. Implement the *search_knowledgebase* function
 
 You can convert the sources into a string in the following manner:
 
 ```python
-res = qa({"query": message})
-sources = ""
-for count, source in enumerate(res['source_documents'],1):
-    sources += f"Source {count}\n{source.page_content}\n"
+def search_knowledgebase(message):
+    try:
+        res = qa.invoke({"query": message})
+        source_docs = res.get('source_documents', [])
+        if not source_docs:
+            return "No sources found for your query."
+        sources = ""
+        for count, source in enumerate(source_docs, 1):
+            sources += f"Source {count}\n{source.page_content}\n"
+        return sources
+    except Exception as e:
+        print("Error during source retrieval:", e)
+        return "Error retrieving sources."
 ```
 
 #### Aceptance Criteria
@@ -216,9 +234,10 @@ Deploy the app on Render so that it becomes part of your portfolio. Use the foll
 
 Render uses an older version of Python as default but this can be easily changed by setting an environment variable. Inside the Environment tab, create a new environment variable called `PYTHON_VERSION` and set its value to `3.13.7`. This will ensure that Render uses Python version 3.13.7 (the same version that you used in your notebook) for your app. Refer to the screenshot below for a visual guide.
 
-![deploy](screenshots/new_deploy.png)
+![deploy](screenshots/deploy.png)
 
-> **Note:** Render automatically spins down a [free web service](https://render.com/docs/free#:~:text=Render%20spins%20down%20a%20Free,is%20back%20up%20and%20running.) if it remains inactive for 15 minutes without any incoming traffic. When a request is received, Render promptly spins up the service. However, the spinning up process may take a few seconds or, in some cases, up to a couple of minutes. During this time, there might be a noticeable delay for incoming requests, resulting in brief moments of hanging or slower page loads in a browser. <br> Since the search_knowledgebase() and answer_from_knowledgebase() functions may take a significant amount of time to execute, requests can time out when tested on Render. To avoid this issue, students are encouraged to test these functionalities locally on their own machines for smoother performance
+> **Note:** Render automatically spins down a [free web service](https://render.com/docs/free#:~:text=Render%20spins%20down%20a%20Free,is%20back%20up%20and%20running.) if it remains inactive for 15 minutes without any incoming traffic. When a request is received, Render promptly spins up the service. However, the spinning up process may take a few seconds or, in some cases, up to a couple of minutes. During this time, there might be a noticeable delay for incoming requests, resulting in brief moments of hanging or slower page loads in a browser.
+Since the search_knowledgebase() and answer_from_knowledgebase() functions may take a significant amount of time to execute, requests can time out when tested on Render. To avoid this issue, students are encouraged to test these functionalities locally on their own machines for smoother performance
 
 #### Aceptance Criteria
 
@@ -247,4 +266,6 @@ General code organization:
 - Follow the order of the user stories.
 - If you are stuck, take a careful look at the provided resources. If you are still stuck, ask a friend, AI assistant, or a mentor for help.
 - Read the user stories and tests carefully.
-- For our testing, we used the Quantum Computing dataset and encourage students to use different documents to create their knowledge base.
+- Python version 3.13 was used to make the project
+- The DB folder should look like below
+![db folder contents](screenshots/db_contents.png)
