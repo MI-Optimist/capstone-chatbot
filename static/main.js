@@ -25,6 +25,13 @@ function sendMessage() {
             url = '/answer';
     }
     
+    // show before sending
+    document.getElementById('loading').style.display = 'block';
+
+    // hide inside xhr.onload before displaying response
+    document.getElementById('loading').style.display = 'none';
+
+
     xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.onload = function() {
@@ -53,9 +60,8 @@ function displayMessage(sender, message) {
         
         // Append the message to the Chatbot span
         //address html chars
-        //let textNode = document.createTextNode(message);
-        //messageDiv.appendChild(textNode);
-        messageDiv.innerHTML += message;
+        let textNode = document.createTextNode(message);
+        messageDiv.appendChild(textNode);
     } else {
         messageDiv.classList.add('user-message');
 
@@ -64,7 +70,8 @@ function displayMessage(sender, message) {
         messageDiv.appendChild(userSpan);
         
         // Append the message to the span
-        messageDiv.innerHTML += message;
+        let textNode = document.createTextNode(message);
+        messageDiv.appendChild(textNode);
     }
 
     // Create a timestamp element
@@ -83,3 +90,11 @@ function displayMessage(sender, message) {
 // Handle button click event
 let sendButton = document.getElementById('send-btn');
 sendButton.addEventListener('click', sendMessage);
+
+document.getElementById('message-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') sendMessage();
+});
+
+document.getElementById('clear-btn').addEventListener('click', function() {
+    document.getElementById('chat-container').innerHTML = '';
+});
