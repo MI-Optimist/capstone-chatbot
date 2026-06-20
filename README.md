@@ -1,272 +1,114 @@
-# Final Capstone: Expert Chatbot
+# ThinkBot — Implementation Notes
 
-> You have been chosen to join the development team of *ThinkBot*, an expert chatbot project that aims to answer topic-specific questions. As a developer at *ThinkBot*, your role will be to develop and implement the chatbot platform. This platform will allow users to receive answers to their questions through a user-friendly interface and a set of tools for customizing the chatbot's behavior and knowledge base.
-> 
-> Your goal is to ensure that the ThinkBot platform is intuitive, functional, and conducive to learning. This will involve developing the necessary tools, designing the user interface, and implementing features such as natural language processing and intelligent responses using LangChain chat prompt templates, generative question answering features, and other applicable techniques.
+## Structural Changes for Updated Package Versions
 
-## Existing Files
+The original starter scaffold assumed an older LangChain API surface (`langchain_classic`, `RetrievalQA`, legacy chain constructors). By the time this project was implemented, the LangChain ecosystem had undergone a major reorganization:
 
-The most relevant files in the project are the following:
+| Area | Original Spec / Older API | Implemented With |
+|------|--------------------------|-----------------|
+| LLM import | `from langchain.chat_models import ChatCohere` | `from langchain_cohere import ChatCohere, CohereEmbeddings` |
+| Vector store import | `from langchain.vectorstores import Chroma` | `from langchain_chroma import Chroma` |
+| Chain construction | `RetrievalQA.from_chain_type(...)` | Manual retriever → prompt → LLM → parser chain using LCEL (`|` pipe syntax) |
+| Output parsing | Built-in to chain type | Explicit `StrOutputParser()` from `langchain_core.output_parsers` |
+| Prompt templates | `PromptTemplate` + `ConversationBufferMemory` | `ChatPromptTemplate` + `MessagesPlaceholder` from `langchain_core.prompts` |
+| Conversation memory | `ConversationBufferMemory` object | Manual `chat_history` list of `HumanMessage` / `AIMessage` objects |
+| Embeddings | `CohereEmbeddings` from `langchain_community` | `CohereEmbeddings` from `langchain_cohere` (v0.3+) |
+| Chroma persistence | `Chroma(persist_directory=...).persist()` | `Chroma(persist_directory=...)` — persistence is automatic in chromadb 0.5+ |
 
-| File name     | Description                                                                                  |
-|---------------|----------------------------------------------------------------------------------------------|
-| app.py        | The main application file. It contains the code for the application.                         |
-| templates/index.html     | The template file for the application. It defines the structure and layout of the web form.  |
-| static/style.css      | The CSS stylesheet for the application. It defines the visual style of the web form.         |
-| tests/test.py       | The pytest unit test file. It contains test cases to ensure the functionality of the code.   |
-| static/main.js   | The JavaScript file for the application. It contains client-side code and functionality to enhance user experience and interactivity on the web form. |
+The `requirements.txt` reflects these changes with version-pinned modern packages (`langchain>=0.3.0`, `langchain-cohere>=0.3.0`, `langchain-chroma>=0.1.4`, `chromadb>=0.5.0`, `cohere>=5.0.0`, `pydantic>=2`). All chain-building was rewritten using **LangChain Expression Language (LCEL)** — the `prompt | llm | parser` pipe pattern that replaced the legacy chain classes.
 
-You will mostly work with the `app.py` and `index.html` files.
+---
 
-## Installation
+## US-01 — Answer as Chatbot
 
-1. Fork this repository.
-2. Create a Codespace for your project.
-3. GitHub Codespaces will automatically create a fully-configured development environment for your project in the cloud. If you need to install the requirements manually run: `pip install -r requirements.txt`.
-4. To run the app, use the following command: `python app.py`
-5. To run the tests simply use the following command: `pytest tests/*.py`
+**Requirement:** Respond to general user questions using a LangChain prompt template and the Cohere LLM. Optionally maintain conversation memory.
 
-> **Tip:** Review the [Github Codespaces documentation](https://docs.github.com/en/codespaces/getting-started/quickstart) if you are unsure on how to run and test your app from Codespaces.
+**Solution:**
 
-> **Note:** While it is not mandatory to pass all the unit tests to complete this assignment, it is highly recommended that you use the tests as a guide to deliver a functional application and meet the requirements of the rubric. Feel free to add or update the tests as you work through your project to ensure proper functionality.
+`answer_as_chatbot()` builds a `ChatPromptTemplate` with three components:
+1. A system message establishing the assistant's persona ("You are a helpful assistant called Thinkbot.")
+2. A `MessagesPlaceholder` for injecting the running `chat_history` list.
+3. A human turn placeholder for the current `{input}`.
 
-## Product Backlog
+The chain `prompt | llm` is invoked with the message and history. After each response, both a `HumanMessage` and an `AIMessage` are appended to the module-level `chat_history` list, giving the model full conversational context across turns. The raw `.content` of the response is returned and sent back to the frontend as JSON.
 
->The user stories for your project have already been created. Each of the user stories is listed below, the user stories are to be implemented in the order in which they are listed. Another developer has already written the tests for the application so that you don't have to.
+---
 
-Find the *TODO* comments in the code and create the necessary functionality.
+## US-02 — Answer from Knowledgebase
 
-## US-01 Implement the *Answer as chatbot* feature
+**Requirement:** Allow users to ask questions answered from a pre-built document knowledge base using Chroma and Cohere embeddings.
 
-Your app should be able to respond to general user questions. Use LangChain chat prompt templates to implement this feature. You may also want to consider implementing a memory system for the chatbot to retain information from the conversation. This can enhance the user experience. Use the Cohere API to create a chain and generate relevant responses based on the user's input.
+**Solution:**
 
-![Answer as chatbot](screenshots/answer_as_chatbot.png)
+At startup, if the `./db` directory exists, a `Chroma` vector store is loaded with `CohereEmbeddings` (model `embed-english-v3.0`). In `answer_from_knowledgebase()`:
 
-#### 1. Add the Cohere API key to `.env`
+1. `vectordb.as_retriever().invoke(message)` fetches the most relevant document chunks.
+2. `format_docs()` joins their `page_content` into a single context string.
+3. A `ChatPromptTemplate` injects that context into a system message: *"Answer the question using only the following context."*
+4. The LCEL chain `prompt | llm | StrOutputParser()` generates and returns a grounded answer.
 
-Set the `COHERE_API_KEY` environment variable so that your app can make calls to Cohere's language model. Create an `.env` file and create the environment variable. E.g. `COHERE_API_KEY=insert_your_api_key_here`
+This replaces the `RetrievalQA.from_chain_type()` approach from the spec, which is no longer part of the maintained LangChain API, with an equivalent manual RAG pipeline that is both more transparent and fully compatible with the current library version.
 
->Note: Remember that Cohere offers a free API usuage for their LLM. At times you may get a *"You are using a Trial key, which is limited to 5 API calls / minute. You can continue to use the Trial key for free or upgrade to a Production key with higher rate limits..."* message. This means that your chatbot may be slow to respond at times.
+Collab was utilized to set up the necessary tools for question-answering. It converted the animal_life_and_intelligence.txt file into numerical representations called embeddings, creates a search index for the documents, and sets up a retrieval-based question-answering system using a specific type of chain (RetrievalQA).  Note: because the Quantam Computing text was already split, that data was also included in the final db.
 
-#### 2. Complete the `answer_as_chatbot()` function
+---
 
-Implement the `answer_as_chatbot()` function in `app.py` using LangChain. Your app should be able to respond to general user questions. Create and use a chat prompt template to implement this feature. Consider adding a memory system for the chatbot to retain information from the conversation.
+## US-03 — Search Knowledgebase
 
-#### Aceptance Criteria
+**Requirement:** Return the raw source documents most relevant to a user's query, without generating an LLM response.
 
-1. The chatbot provides a response to the user's inquiry.
-2. A prompt template is utilized to facilitate the interaction with the Language Model (LLM).
+**Solution:**
 
-## US-02 Implement the *Answer question from knowledgebase* feature
+`search_knowledgebase()` calls `vectordb.similarity_search(message)` directly against the Chroma store. The resulting `Document` objects have their `page_content` joined with double newlines and returned as plain text. No LLM call is made — this is a pure vector similarity lookup, useful for letting users see the source material the chatbot draws from. A guard clause returns `"Nothing Found!"` when the search yields no results.
 
-Recall that you have already created a question answering system that can provide answers based on a given knowledgebase. The system has the capability to answer questions using a set of documents that you selected.
+---
 
-Your chatbot will include this feature as an option to allow users to ask topic-specific questions based on a set of documents of your choice.
+## US-04 — Improved User Interface
 
-![knowledge base](screenshots/answer_from_knowledge_base.jpeg)
+**Requirement:** Give the chatbot a name, a visually appealing design, and user-friendly features (auto-scroll, clear button, loading indicator).
 
-#### 1. Create a Chroma database
+**Solution:**
 
-Use the [notebook](https://colab.research.google.com/drive/1luGTr5ztQvNJO-YisldNK2kS1Qly4uan?usp=sharing) provided in the Generative Question Answering lesson to create a Chroma database and download it to your computer. Make sure that you choose a text that is related to your industry or that it's a text that may bring useful information.
+The UI was themed around **"The Brain Bot"** (an Animaniacs homage). Key implementation details:
 
->**Note:** Cohere has introduced a token limit for embeddings, so to prevent errors, it's recommended to use shorter texts, like a Wikipedia article. If you encounter any issues while creating your database using the notebook above, you are welcome to use [this](https://github.com/Thinkful-Ed/ai-in-web-dev-resources/raw/refs/heads/main/db.zip) pre-built database for your project.
+- **`templates/index.html`:** Bootstrap 4.5 grid with a fixed-height scrollable `#chat-container`, a mode dropdown (`answer` / `kbanswer` / `search`), a text input, Send and Clear buttons, and mascot images flanking the chat window.
+- **`static/style.css`:** A dark theme using navy/deep-blue backgrounds (`#1a1a2e`, `#16213e`) and purple accents (`#9b59b6`). User messages are right-aligned with a purple bubble; assistant messages are left-aligned with a blue bubble. A CSS pulse animation serves as the loading indicator.
+- **`static/main.js`:** `sendMessage()` reads the dropdown to select the correct endpoint (`/answer`, `/kbanswer`, `/search`), shows a loading indicator div, sends an `XMLHttpRequest` POST, then calls `displayMessage()` on the response. `displayMessage()` creates a styled div with the sender label, message text, and timestamp, appends it to `#chat-container`, and calls `scrollTop = scrollHeight` for auto-scroll. The Clear button empties the container's innerHTML.
 
->**Note:** Please be aware that Github imposes a [file size limit of 25MB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github#file-size-limits). Thus, if you add numerous documents to your database, it may exceed this limit. In case you have a file larger than 25MB, you have two options: 
->
->1. You can commit the file locally, thereby raising the limit to 50MB.
->2. Alternatively, you can reduce the size of your database files by removing some documents from your knowledge base.
->
->For this project, we recommend that you limit your files to no more than 25MB. Before proceeding to the next step, please ensure that your `chroma-embeddings.parquet` file is smaller than 25MB. If you are committing locally, you can have a file size limit of up to 50MB.
+---
 
-#### 2. Add the database to your project
+## US-05 — Deployment
 
-To use the database in your app, you will need to add it in your project. Add the `db` folder to your project like shown in the screenshot below.
+**Requirement:** Deploy the application on Render.
 
-![Files](screenshots/files.png)
+**Solution:**
 
-#### 3. Load the database in your flask app
+The application is configured for Render using Gunicorn as the WSGI server:
+- **Build command:** `pip install -r requirements.txt`
+- **Start command:** `gunicorn app:app`
+- **Environment variables set in Render:** `COHERE_API_KEY` and `PYTHON_VERSION=3.13.7`
 
-Import RetrievalQA, Chroma, and CohereEmbeddings into your project.
+The `COHERE_API_KEY` is never committed — it is read at runtime via `python-dotenv` from the host environment. The `./db` Chroma database is committed to the repository (within GitHub's 25 MB file size limit) so it is available in the deployed environment without a separate build step.
 
-```python
-from langchain_cohere import ChatCohere, CohereEmbeddings
-from langchain_chroma import Chroma
-from langchain_classic.chains import RetrievalQA
-from langchain_core.runnables import RunnableSequence
-from langchain_core.prompts import PromptTemplate
-```
+---
 
-Create a function to load the database. To avoid any errors, make sure that you added the database to your project and that you have set your `COHERE_API_KEY` in your `.env` file. 
+## Application Architecture & Patterns
 
-```python
-def load_db():
-    try:        
-        embeddings = CohereEmbeddings(
-            cohere_api_key=os.environ["COHERE_API_KEY"], 
-            model="embed-english-v3.0"
-            )
-        
-        vectordb = Chroma(persist_directory='db', embedding_function=embeddings)
-        llm = ChatCohere(cohere_api_key=os.environ["COHERE_API_KEY"])
-        qa = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=vectordb.as_retriever(),
-            return_source_documents=True
-        )
+### Flask + JSON API
+The backend is a thin Flask app that exposes three `POST` endpoints (`/answer`, `/kbanswer`, `/search`) each accepting `{"message": "..."}` JSON and returning `{"message": "..."}` JSON. The frontend communicates exclusively through these endpoints, making the client/server boundary clean and the backend independently testable.
 
-        return qa
-    
-    except Exception as e:
-        print("Error initializing QA system:", e)
-        return None
+### Retrieval-Augmented Generation (RAG)
+US-02 and US-03 implement the RAG pattern: user queries are embedded, matched against a pre-indexed vector store (Chroma), and the retrieved chunks are injected as context into the LLM prompt. This grounds the model's responses in specific source material rather than relying on parametric knowledge alone.
 
-qa = load_db()
-```
+### LangChain Expression Language (LCEL)
+All chains are built with the `|` pipe operator: `prompt | llm | parser`. This replaces the deprecated legacy chain classes (`LLMChain`, `RetrievalQA`) with composable, inspectable runnables that are the current idiomatic approach in LangChain 0.3+.
 
-#### 4. Implement the *answer_from_knowledgebase* function
+### In-Memory Conversation History
+Conversational context for the chatbot mode is maintained as a module-level Python list of `HumanMessage` / `AIMessage` objects. This is injected into the prompt via `MessagesPlaceholder`, giving the LLM multi-turn context without a database or session layer. The trade-off is that history is per-process and resets on server restart.
 
-The function should call the RetrievalQA object that you created in the previous step when loading the database.
+### Test Isolation via Mocking
+`conftest.py` uses pytest fixtures with `unittest.mock.patch` to replace `app.llm.invoke` and `app.vectordb` with controlled fakes before any test runs. This means the full test suite executes offline without any Cohere API calls or disk I/O against the Chroma database, keeping tests fast and deterministic.
 
-```python
-def answer_from_knowledgebase(message):
-    try:
-        res = qa.invoke({"query": message})
-        source_docs = res.get('source_documents', [])
-        
-        if not source_docs:
-            return "No relevant knowledge found in the database."
-
-        return res['result']
-    except Exception as e:
-        print("Error during QA invocation:", e)
-        return "Sorry, I couldn't retrieve an answer."
-```
-
-Make sure to test that your function works before proceeding to the next step.
-
-#### Aceptance Criteria
-
-1. The chatbot answers questions from the knowledgebase.
-2. A user can select the "answer from knowledgebase" option from a dropdown menu.
-
-## US-03 Implement the *search knowledgebase* feature
-
-Your chatbot must also include a feature that allows a user to search your document knowledgebase. Recall that the source documents are already returned when using RetrievalQA and can be retrieved by calling `results["source_documents"]`.
-
-![Alt text](screenshots/search_knowledgebase.jpeg)
-
-#### 1. Implement the *search_knowledgebase* function
-
-You can convert the sources into a string in the following manner:
-
-```python
-def search_knowledgebase(message):
-    try:
-        res = qa.invoke({"query": message})
-        source_docs = res.get('source_documents', [])
-        if not source_docs:
-            return "No sources found for your query."
-        sources = ""
-        for count, source in enumerate(source_docs, 1):
-            sources += f"Source {count}\n{source.page_content}\n"
-        return sources
-    except Exception as e:
-        print("Error during source retrieval:", e)
-        return "Error retrieving sources."
-```
-
-#### Aceptance Criteria
-
-1. The chatbot answers questions from the knowledgebase.
-2. A user can select the "answer from knowledgebase" option from a dropdown menu.
-
-## US-04 Improve the user interface
-
-In this step, you will focus on improving the user interface (UI) of your app. A visually appealing and user-friendly interface enhances the overall user experience.
-
-#### 1. Come up with a name for your chatbot
-
-Think of a unique and catchy name for your chatbot. The name should align with the purpose and theme of your chatbot.
-
-#### 2. Enhance the design of the web form
-
-Open the `index.html` file located in the templates folder. Use HTML and CSS to enhance the design of the web form. You can update the layout, color scheme, fonts, and other visual elements to make your app and chatbot more visually appealing.
-
-Consider the following points when improving the design:
-
-- Use meaningful headings and labels to guide users through the chatbot interaction.
-- Create a user-friendly and intuitive interface by organizing the elements logically.
-- Ensure proper alignment and spacing to improve readability and visual appeal.
-- Incorporate suitable colors and fonts that align with the theme and purpose of the chatbot.
-
-#### 3. Implement user-friendly features
-To improve usability, you can implement additional user-friendly features. Here are some suggestions:
-
-- Auto-scrolling: Implement auto-scrolling to ensure that the chat window automatically scrolls down to display the latest chat messages.
-- Clear button: Add a button that allows users to clear the chat history and start afresh.
-- Button styling: Enhance the styling of buttons to make them visually appealing and easy to identify.
-- Error handling: Implement error handling to gracefully handle any errors or unexpected inputs from users.
-- Loading indicators: Add loading indicators or animations to indicate when the chatbot is processing a user's query or performing a task.
-
-#### Acceptance Criteria
-
-1. The chatbot has an improved and visually appealing design.
-2. The web form has a user-friendly and intuitive layout.
-3. Additional user-friendly features, such as auto-scrolling and clear button, are implemented.
-4. The overall UI enhances the user experience of interacting with the chatbot.
-
-Update the `index.html`, `style.css`, and `main.js` files as needed to implement the improvements to the user interface. Test the chatbot in the browser to verify the changes and ensure a seamless user experience.
-
-### US-05 Deployment
-
-Congrats on getting this far! You finished the first version of your app. Now, it's time to deploy that app so that it can be tested by your clients. 
-
-#### 1. Deploy your app on Render
-
-Deploy the app on Render so that it becomes part of your portfolio. Use the following settings in Render to build and start the app:
-
-1. Build command: `pip install -r requirements.txt`
-
-2. Start command: `gunicorn app:app`
-
-#### 2. Set the `PYTHON_VERSION` and `COHERE_API_KEY` environment variables
-
-Render uses an older version of Python as default but this can be easily changed by setting an environment variable. Inside the Environment tab, create a new environment variable called `PYTHON_VERSION` and set its value to `3.13.7`. This will ensure that Render uses Python version 3.13.7 (the same version that you used in your notebook) for your app. Refer to the screenshot below for a visual guide.
-
-![deploy](screenshots/deploy.png)
-
-> **Note:** Render automatically spins down a [free web service](https://render.com/docs/free#:~:text=Render%20spins%20down%20a%20Free,is%20back%20up%20and%20running.) if it remains inactive for 15 minutes without any incoming traffic. When a request is received, Render promptly spins up the service. However, the spinning up process may take a few seconds or, in some cases, up to a couple of minutes. During this time, there might be a noticeable delay for incoming requests, resulting in brief moments of hanging or slower page loads in a browser.
-Since the search_knowledgebase() and answer_from_knowledgebase() functions may take a significant amount of time to execute, requests can time out when tested on Render. To avoid this issue, students are encouraged to test these functionalities locally on their own machines for smoother performance
-
-#### Aceptance Criteria
-
-1. The project is deployed on Render.
-
-## Success criteria
-
-Functionality:
-
-- For the answer as chatbot feature, a prompt template is utilized to facilitate the interaction with the Language Model (LLM).
-- The chatbot can answer questions from the knowledgebase.
-- A user can select the "answer as chatbot", "search knowledgebase", and "answer from knowledgebase" options from a dropdown menu.
-- The app uses a RetrievalQA and a Chroma database for the search knowledgebase and answer from knowledegebase features.
-- The app has an improved and visually appealing design.
-- The web form has a user-friendly and intuitive layout.
-- The overall UI enhances the user experience of interacting with the chatbot.
-- The app is deployed on Render.
-
-General code organization:
-
-- Minimal code duplication
-- Comments are used to describe the functions.
-
-## Tips
-
-- Follow the order of the user stories.
-- If you are stuck, take a careful look at the provided resources. If you are still stuck, ask a friend, AI assistant, or a mentor for help.
-- Read the user stories and tests carefully.
-- Python version 3.13 was used to make the project
-- The DB folder should look like below
-
-![db folder contents](screenshots/db_contents.png)
+## Future Enhancements
+1. UI: Add "Thinking..." or some other visual cue that the request is in process.
+1. Error Handling: Capture unsucessful responses and fail gracefully, informing the user to please try again.

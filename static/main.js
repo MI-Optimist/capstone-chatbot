@@ -1,3 +1,6 @@
+// Reads the user's input and selected mode, sends a POST request to the matching
+// Flask endpoint, and delegates rendering to displayMessage().
+// The three endpoints (/answer, /kbanswer, /search) mirror the three backend functions in app.py.
 function sendMessage() {
     let messageInput = document.getElementById('message-input');
     let message = messageInput.value;
@@ -46,6 +49,9 @@ function sendMessage() {
     messageInput.value = '';
 }
 
+// Creates a styled message bubble, labels it by sender, appends a timestamp,
+// and auto-scrolls the chat container to the bottom.
+// Uses createTextNode (not innerHTML) for the message body to avoid XSS from LLM output.
 function displayMessage(sender, message) {
     let chatContainer = document.getElementById('chat-container');
     let messageDiv = document.createElement('div');

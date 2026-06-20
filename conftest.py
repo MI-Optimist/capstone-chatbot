@@ -1,3 +1,7 @@
+# pytest configuration — runs automatically before every test (autouse=True).
+# Patches app.llm and app.vectordb with MagicMock objects so tests never make
+# real Cohere API calls or hit the Chroma DB on disk.
+# This keeps tests fast, offline, and deterministic.
 import os
 from dotenv import load_dotenv
 
