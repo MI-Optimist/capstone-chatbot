@@ -107,13 +107,21 @@ def answer_as_chatbot(message):
 @app.route('/kbanswer', methods=['POST'])
 def kbanswer():
     message = request.json['message']
-    response_message = answer_from_knowledgebase(message)
+    try:
+        response_message = answer_from_knowledgebase(message)
+    except:
+        response_message = 'Error: Could not reach the server.'
+        print("An exception occurred")
     return jsonify({'message': response_message}), 200
 
 @app.route('/search', methods=['POST'])
 def search():    
     message = request.json["message"]
-    response_message = search_knowledgebase(message)
+    try:
+        response_message = search_knowledgebase(message)
+    except:
+        response_message = 'Error: Could not reach the server.'
+        print("An exception occurred")
     return jsonify({'message': response_message}), 200
 
 @app.route('/answer', methods=['POST'])
