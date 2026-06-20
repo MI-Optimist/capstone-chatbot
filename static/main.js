@@ -53,8 +53,9 @@ function displayMessage(sender, message) {
         
         // Append the message to the Chatbot span
         //address html chars
-        let textNode = document.createTextNode(message);
-        messageDiv.appendChild(textNode);
+        //let textNode = document.createTextNode(message);
+        //messageDiv.appendChild(textNode);
+        messageDiv.innerHTML += message;
     } else {
         messageDiv.classList.add('user-message');
 

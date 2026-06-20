@@ -22,9 +22,10 @@ embeddings = CohereEmbeddings(
 vectordb = None
 if os.path.exists("./db"):
     vectordb = Chroma(persist_directory="./db", embedding_function=embeddings)
-    print("Collections in db:", vectordb._client.list_collections())
-    print("doc count:", vectordb._collection.count())
-    print("default collection:", vectordb._collection_name)
+    # Debugging statements
+    #print("Collections in db:", vectordb._client.list_collections())
+    #print("doc count:", vectordb._collection.count())
+    #print("default collection:", vectordb._collection_name)
     
 
 chat_history = []
@@ -52,11 +53,11 @@ def search_knowledgebase(message):
     if vectordb is None:
         return "Knowledgebase not available."
     
-    print (message)
+    # print (message)
 
     docs = vectordb.similarity_search(message)
 
-    print(f"len docs: {len(docs)}")
+    # print(f"len docs: {len(docs)}")
 
     if not docs:
         return "Nothing Found!"
