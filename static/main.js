@@ -30,8 +30,10 @@ function sendMessage() {
     
     // show before sending
     document.getElementById('loading').style.display = 'block';
+    // Clear the input field
+    messageInput.value = 'The Brain is pondering...';
 
-    xhr.open('POST'. url);
+    xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.onload = function(){
         // hide inside xhr.onload before displaying response
@@ -39,29 +41,17 @@ function sendMessage() {
         if (xhr.status == 200){
             let response = JSON.parse(xhr.responseText);
             displayMessage('assistant', response.message);
+            // Clear the input field
+            messageInput.value = '';
         }
 
     };
-    xhr.onerror = functon(){
+    xhr.onerror = function(){
         document.getElementById('loading').style.display='none';
         displayMessage('assistant', 'Error: Could not reach the server.');
     };
     xhr.send(JSON.stringify({message: message}));
-
-
-
-    xhr.open('POST', url);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            let response = JSON.parse(xhr.responseText);
-            displayMessage('assistant', response.message);
-        }
-    };
-    xhr.send(JSON.stringify({message: message}));
     
-    // Clear the input field
-    messageInput.value = '';
 }
 
 // Creates a styled message bubble, labels it by sender, appends a timestamp,
