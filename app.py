@@ -3,12 +3,11 @@ import os
 # had to fix the imports do to recent package updates and dependencies.
 from dotenv import load_dotenv
 from flask import Flask, render_template
-from flask import request, jsonify, abort
+from flask import request, jsonify
 from langchain_cohere import ChatCohere, CohereEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
 load_dotenv()
@@ -35,7 +34,7 @@ def answer_from_knowledgebase(message):
     if vectordb is None:
         return "Knowledgebase not available."
     docs = vectordb.as_retriever().invoke(message)
-    context = "\n\n".join(doc.page_content for doc in docs)
+    context = format_docs(docs)
     prompt = ChatPromptTemplate.from_messages([
         ("system", "Answer the question using only the following context:\n\n{context}"),
         ("human", "{question}")
@@ -50,6 +49,9 @@ def search_knowledgebase(message):
         return "Knowledgebase not available."
     
     docs = vectordb.similarity_search(message)
+    if not docs:
+        return "Nothing Found!"
+
     return "\n\n".join(doc.page_content for doc in docs)
 
 def answer_as_chatbot(message):
