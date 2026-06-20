@@ -31,8 +31,23 @@ function sendMessage() {
     // show before sending
     document.getElementById('loading').style.display = 'block';
 
-    // hide inside xhr.onload before displaying response
-    document.getElementById('loading').style.display = 'none';
+    xhr.open('POST'. url);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function(){
+        // hide inside xhr.onload before displaying response
+        document.getElementById('loading').style.display = 'none';
+        if (xhr.status == 200){
+            let response = JSON.parse(xhr.responseText);
+            displayMessage('assistant', response.message);
+        }
+
+    };
+    xhr.onerror = functon(){
+        document.getElementById('loading').style.display='none';
+        displayMessage('assistant', 'Error: Could not reach the server.');
+    };
+    xhr.send(JSON.stringify({message: message}));
+
 
 
     xhr.open('POST', url);
